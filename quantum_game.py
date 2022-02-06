@@ -1,12 +1,8 @@
 from __future__ import annotations
-from cgi import print_environ
-from random import choice
-from re import S, X
-from ssl import Options
 import string
-import qiskit
-from numpy import pi
-from sympy import false
+from unicodedata import name
+import qiskit 
+import json
 
 REGISTER_SIZE = 4
 BACKEND = qiskit.BasicAer.get_backend('qasm_simulator')
@@ -22,7 +18,12 @@ class Player:
         
 
 class Node:
+    ID_counter: int = 0
+
     def __init__(self, name):
+        self.id = Player.ID_counter
+        Player.ID_counter += 1
+        
         self.name: string = name
         self.connections: set[Node] = set()
         self.state = None
@@ -57,11 +58,11 @@ class Node:
     def __ne__(self, other):
         return not self == other
             
-            
-           
-    # def Map(self):
-    #     self.nodes: list[Node]
+    def node_info(self):
+        return f"""{{id: {self.id}, label: "{self.name}" }}"""
 
+    def connections_info(self):
+        return [frozenset({self.id, connection.id}) for connection in self.connections]
 
 class Map:
     def __init__(self, data, players: list[Player]):
@@ -80,6 +81,16 @@ class Map:
             for node in value:
                 nodes[key].connect_node(nodes[node])
         self.nodes = nodes
+        
+    def get_nodes(self):
+        return ',\n'.join([node.node_info() for node in self.nodes.values()])
+    
+    def get_connections(self):
+        sets = [node.connections_info() for node in self.nodes.values()]
+        sets = set([item for items in sets for item in items])
+        return ', \n'.join([f"{{from: {list(connection)[0]}, to: {list(connection)[1]}}}" for connection in sets])
+
+
         
     def is_game_done(self) -> bool:
         count = set()
@@ -248,4 +259,7 @@ map_test = {
 
 if __name__ == "__main__":
     game = Game([Player("Cal"), Player("bot")], map_test)
-    game.run()
+    # game.run()
+    print(game.map.get_nodes())
+    
+
