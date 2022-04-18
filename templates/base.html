@@ -7,8 +7,12 @@
 	<title>{% block title %}{% endblock %}</title>
 
 	<!-- note the special href for files in the Flask "static" folder -->
-	<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
-
+	<!--<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+	 -->
+	<a href="/login">login</a>
+	<a href="/logout">logout</a>
+	<a href="/create_game">create game</a>
+	<a href="/join_game">join game</a>
 </head>
 <body>
 

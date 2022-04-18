@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>{% block title %} Create Game {% endblock %}</h1>
+    <form action="/create_game" method="post">
+        <label for="lobby_name">Lobby Name:</label><br>
+        <input type="text" id="lobby_name" name="lobby_name" value="Lobby"><br>
+        <input type="submit" value="Submit">
+      </form> 
+    <h3>{{ utc_dt }}</h3>
+{% endblock %}

@@ -4,6 +4,52 @@ import qiskit
 REGISTER_SIZE = 4
 BACKEND = qiskit.BasicAer.get_backend('qasm_simulator')
 
+class Quantum_runner:
+    def __init__(self, actions: dict[Player, Action]):
+        register_size = sum([len(action.data['Targets']) for action in actions.values()])
+    
+        self.qreg_q = qiskit.QuantumRegister(register_size, 'q')
+        self.creg_c = qiskit.ClassicalRegister(register_size, 'c')
+        self.nodes={}
+
+        self.circuit = qiskit.QuantumCircuit(self.qreg_q, self.creg_c)    
+        
+        self.build_circuit(actions)
+        self.actions: list[Action] = actions
+        
+
+    def build_circuit(self, actions: dict[Player, Action]):
+        # Build the targets section ensuring one player is aiming for 1 and the other for 0
+        index = 0        
+        for player, action in actions.items():
+            for target in action.data['Targets']:
+                self.nodes[target] = index
+                if player.id == 0:
+                    self.circuit.x(self.qreg_q[index])
+                index +=1
+        
+        # perform swaps on selected nodes
+        for player, action in actions.items():
+            print(action.swaps)
+            for (x, y) in action.data['Swaps']:
+                print(self.nodes[x])
+                self.circuit.swap(self.qreg_q[self.nodes[x]], self.qreg_q[self.nodes[y]])
+        self.measure_circuit()
+        print(self.circuit)
+    
+
+    def process_quantum_turn(self):
+        job = qiskit.execute(self.circuit, BACKEND, shots=1000)
+        result = job.result()        
+        counts = result.get_counts(self.circuit)
+        val = max(counts, key=counts.get)
+        
+        return {node:int(val[index]) for (node, index) in self.nodes.items()}
+    
+    def measure_circuit(self):
+        for i in range(len(self.qreg_q)):
+            self.circuit.measure(self.qreg_q[i], self.creg_c[i])
+
 class Player:
     players = {}
         
@@ -43,8 +89,7 @@ class Player:
         return False
     def get_id(self):
         return self.id
-        
-
+    
 class Node:
     ID_counter: int = 0
 
@@ -121,8 +166,6 @@ class Map:
         sets = [node.connections_info() for node in self.nodes.values()]
         sets = set([item for items in sets for item in items])
         return [{"from": list(connection)[0], "to": list(connection)[1], "id": id} for id, connection in enumerate(sets)]
-
-
         
     def is_game_done(self) -> bool:
         count = set()
@@ -143,24 +186,28 @@ class Map:
     def edge_detect(self, player):
         nodes = set()
         for node in self.nodes.values():
-            if node.state == player.id:
+            if node.state == player:
                 for connection in node.connections:
-                    if connection.state != player.id:
+                    if connection.state != player:
                         nodes.add(connection)
-        return list(nodes)
-
-
-ACTIONS = {}
-
+        return nodes
+    
 class Action:
-    phases = {"Targets": 1, "Swaps": 2}
-
-    def __init__(self, player: Player) -> None:
+    def __init__(self, player: Player, phases) -> None:
         self.player: Player = player
-        self.data = {phase: [] for phase, nodes in Action.phases.items()}
-        self.targets: list[Node] = []
-        self.swaps: list[tuple[Node, Node]] = []
-        self.phase: str = Action.phases.keys()[0]
+        self.data = {phase: [] for phase in phases}
+        # self.targets: list[Node] = []
+        # self.swaps: list[tuple[Node, Node]] = []
+        # self.phase: str = Action.phases.keys()[0]
+    
+    def check_status(self, phase):
+        print(phase)
+        if phase in self.data.keys() or not phase: return True
+        return False if not self.data[phase] else True
+    
+    def set_phase(self, phase, data):
+        self.data[phase] = data
+        print(self.data)
 
     def get_target(self, choices):
         x = self.options_check(f"Player {self.player.name}, enter target node: ", 
@@ -179,9 +226,8 @@ class Action:
 
         self.swaps.append((x, y))
     
-    
-    def set_phase(self, data):
-        self.phases[self.phase](data)
+    # def set_phase(self, data):
+    #     self.phases[self.phase](data)
         
     def options_check(self, msg, options, err="error - try again: "):
         print(f"Options: {','.join(options)}")
@@ -190,58 +236,69 @@ class Action:
             x = input(err)
         return x
     
-
-class Quantum_runner:
-    def __init__(self, actions: dict[Player, Action]):
-        register_size = sum([len(action.targets) for action in actions.values()])
-    
-        self.qreg_q = qiskit.QuantumRegister(register_size, 'q')
-        self.creg_c = qiskit.ClassicalRegister(register_size, 'c')
-        self.nodes={}
-
-        self.circuit = qiskit.QuantumCircuit(self.qreg_q, self.creg_c)    
+class Turn:
+    def __init__(self, game) -> None:
+        self.phases = {"Targets": [1, self.get_target_choices], "Swaps": [2, self.get_swap_choices]}
+        self.game = game
+        self.actions = {player: Action(player, self.phases.keys()) for player in self.game.players}
+        self.phase = 0
         
-        self.build_circuit(actions)
-        self.actions: list[Action] = actions
-        
-
-    def build_circuit(self, actions: dict[Player, Action]):
-        # Build the targets section ensuring one player is aiming for 1 and the other for 0
-        index = 0        
-        for player, action in actions.items():
-            for target in action.targets:
-                self.nodes[target] = index
-                if player.id == 0:
-                    self.circuit.x(self.qreg_q[index])
-                index +=1
-        
-        # perform swaps on selected nodes
-        for player, action in actions.items():
-            print(action.swaps)
-            for (x, y) in action.swaps:
-                print(self.nodes[x])
-                self.circuit.swap(self.qreg_q[self.nodes[x]], self.qreg_q[self.nodes[y]])
-        self.measure_circuit()
-        print(self.circuit)
+    def get_phase_key(self):
+        print( f"{self.phase} - {len(self.phases.keys())}")
+        return list(self.phases.keys())[self.phase] if self.phase < len(self.phases.keys()) else None
     
+    def check_phase_status(self):
+        for action in self.actions.values():
+            if not action.check_status(self.get_phase_key()): return False
+        return True
+    
+    def check_status(self):
+        return self.phase == len(self.phases.keys())
+    
+    def next_phase(self):
+        self.phase += 1
+        print(f"next phase - {self.get_phase_key()} - {self.check_phase_status()}")
+        if not self.get_phase_key(): return True
+                
+    def get_phase(self):
+        return self.phases.get(self.get_phase_key())
+    
+    def get_action(self, player):
+        return self.actions[player]
 
-    def process_quantum_turn(self):
-        job = qiskit.execute(self.circuit, BACKEND, shots=1000)
-        result = job.result()        
-        counts = result.get_counts(self.circuit)
-        val = max(counts, key=counts.get)
+    def get_player_choice(self, player):
+        choices = self.get_phase()[1](player)
+        return choices, self.get_phase_key()
+    
+    def set_player_choice(self, player, data):
+        self.actions[player].set_phase(self.get_phase_key(), data)
+        status = self.check_phase_status()
+        print(status)
+        if status:
+            self.next_phase()
+        return status
+    
+    def get_target_choices(self, player):
+        return [[value.id for value in self.game.map.possible_targets(player).values()]]
+    
+    def get_swap_choices(self, player):
+        sources = self.get_action(player).data['Targets']
+        targets = []
+        for action in self.actions.values():
+            targets += action.data['Targets']
         
-        return {node:int(val[index]) for (node, index) in self.nodes.items()}
-    
-    def measure_circuit(self):
-        for i in range(len(self.qreg_q)):
-            self.circuit.measure(self.qreg_q[i], self.creg_c[i])
-    
+        return [sources, targets]
+        # choices = set().union(*[action.targets for (key, action) in self.actions.items() if key != player])
+        # return choices, set(self.get_action(player).targets) | choices
 
+
+    
 class Game:
     def __init__(self, players: set[Player] = set(), map=None):
         self.map: Map = Map(map_test)
         self.players: set[Player] = players
+        self.turn = None
+        self.turns = 0
         if map: self.map = Map(map, self.players)
         print("game created")
 
@@ -268,18 +325,13 @@ class Game:
         return
     
     def get_action_requests(self, player):
-        Player.get(player)
-        phase = self.get_phase()
-        choices = []
-        match phase:
-            case "Targets":
-                [[value.id for value in self.map.possible_targets(player).values()]]
-            case "swaps":
-                [set().union(*[action.targets for (key, action) in self.actions.items() if key != player])], "Swaps"
-        return choices, phase
+        return self.turn.get_player_choice(player if player is not int else player.id)
     
     def set_action_requests(self, player, data):
-        self.actions[player].set_phase(data)
+        done = self.turn.set_player_choice(player, data)
+        if done and self.turn.check_status():
+            self.end_turn()
+        return done
     
     def get_state(self):
         state = "started"
@@ -297,36 +349,24 @@ class Game:
             return True
         else:
             return False
-
-    # def get_players(self):
-    #     return [Player.get(player) for player in self.players]
-
-    # def get_player(self, player):
-    #     return Player.get(player)
-    def run_remote(self):
-        self.actions = {}
+    
+    def is_running(self):
+        return bool(self.turn)
+    
+    def next_turn(self):
+        self.turns += 1
+        self.turn = Turn(self)
         
-    def run(self):
-        print("running game")
-        while not self.map.is_game_done():
-            self.actions = {}
-            players = [Player.get(player) for player in self.players]
-
-            for player in players:
-                action = Action(player)
-                self.actions[player] = self.get_player_targets(player, action)
-                
-            for player in players:
-                self.actions[player] = self.get_player_swaps(player, self.actions[player])
-            self.end_turn()     
-        self.end()
+    def run_remote(self):
+        self.next_turn()
         
     def end_turn(self):
-        runner = Quantum_runner(self.actions)
+        print("end turn")
+        runner = Quantum_runner(self.turn.actions)
         results = runner.process_quantum_turn()
         print(results)
         self.map.apply_states(results)
-        self.actions = {}
+        self.next_turn()
 
 
     def get_player_swaps(self, player, action: Action) -> list[Action]:
@@ -361,9 +401,3 @@ map_test = {
         'I': ['B', 'D', 'F', 'H'],
         'Slot 2': ['E']
 }
-
-if __name__ == "__main__":
-    game = Game([Player("Cal"), Player("bot")], map_test)
-    game.run()
-    
-
